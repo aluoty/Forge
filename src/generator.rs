@@ -17,7 +17,11 @@ pub fn create_project(name: &str, template_id: &str) -> Result<()> {
     generate_common_files(name)?;
     let files = generate_source_files(name, template_id);
     for (path, content) in &files {
-        fs::write(format!("{name}/{path}"), content)
+        let full_path = format!("{name}/{path}");
+        if let Some(parent) = Path::new(&full_path).parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&full_path, content)
             .with_context(|| format!("Failed to write {path}"))?;
     }
 
@@ -39,15 +43,24 @@ fn generate_common_files(name: &str) -> Result<()> {
 fn generate_source_files(name: &str, template_id: &str) -> Vec<(String, String)> {
     match template_id {
         "c" => gen_c_bare(name),
+        "c-allegro" => gen_c_allegro(name),
+        "c-curl" => gen_c_curl(name),
+        "c-gtk3" => gen_c_gtk3(name),
         "c-ncurses" => gen_c_ncurses(name),
-        "c-raylib" => gen_c_raylib(name),
         "c-opengl" => gen_c_opengl(name),
+        "c-raylib" => gen_c_raylib(name),
         "c-sdl2" => gen_c_sdl2(name),
-        "rust" => gen_rust(name),
+        "cpp" => gen_cpp(name),
+        "go" => gen_go(name),
+        "nodejs" => gen_nodejs(name),
         "python" => gen_python(name),
+        "rust" => gen_rust(name),
+        "zig" => gen_zig(name),
         _ => unreachable!(),
     }
 }
+
+// -- flake.nix generation --
 
 fn make_flake(name: &str, packages: &[&str]) -> String {
     let pkgs: Vec<String> = packages
@@ -82,6 +95,88 @@ fn make_flake(name: &str, packages: &[&str]) -> String {
     .replace("{PACKAGES}", &pkgs.join("\n"))
 }
 
+// -- Makefile helpers --
+
+fn makefile_c(name: &str, extra_cflags: &str, extra_ldflags: &str) -> String {
+    let cflags = if extra_cflags.is_empty() {
+        String::from("CFLAGS = -Wall -Wextra -O2 -std=c11")
+    } else {
+        format!("CFLAGS = -Wall -Wextra -O2 -std=c11 {}", extra_cflags)
+    };
+    let ldflags = if extra_ldflags.is_empty() {
+        String::from("LDFLAGS =")
+    } else {
+        format!("LDFLAGS = {}", extra_ldflags)
+    };
+
+    r#"BUILD_DIR = build
+BIN = $(BUILD_DIR)/{name}
+
+CC = gcc
+{CFLAGS_TEMPLATE}
+{LDFLAGS_TEMPLATE}
+SRC = src/main.c
+
+all: $(BIN)
+
+$(BIN): $(SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(BUILD_DIR):
+	mkdir -p $@
+
+run: $(BIN)
+	./$(BIN)
+
+clean:
+	rm -rf $(BUILD_DIR)
+.PHONY: all run clean
+"#
+    .replace("{name}", name)
+    .replace("{CFLAGS_TEMPLATE}", &cflags)
+    .replace("{LDFLAGS_TEMPLATE}", &ldflags)
+}
+
+fn makefile_cpp(name: &str, extra_cxxflags: &str, extra_ldflags: &str) -> String {
+    let cxxflags = if extra_cxxflags.is_empty() {
+        String::from("CXXFLAGS = -Wall -Wextra -O2 -std=c++17")
+    } else {
+        format!("CXXFLAGS = -Wall -Wextra -O2 -std=c++17 {}", extra_cxxflags)
+    };
+    let ldflags = if extra_ldflags.is_empty() {
+        String::from("LDFLAGS =")
+    } else {
+        format!("LDFLAGS = {}", extra_ldflags)
+    };
+
+    r#"BUILD_DIR = build
+BIN = $(BUILD_DIR)/{name}
+
+CXX = g++
+{CXXFLAGS_TEMPLATE}
+{LDFLAGS_TEMPLATE}
+SRC = src/main.cpp
+
+all: $(BIN)
+
+$(BIN): $(SRC) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(BUILD_DIR):
+	mkdir -p $@
+
+run: $(BIN)
+	./$(BIN)
+
+clean:
+	rm -rf $(BUILD_DIR)
+.PHONY: all run clean
+"#
+    .replace("{name}", name)
+    .replace("{CXXFLAGS_TEMPLATE}", &cxxflags)
+    .replace("{LDFLAGS_TEMPLATE}", &ldflags)
+}
+
 // -- C (bare) --
 
 fn gen_c_bare(name: &str) -> Vec<(String, String)> {
@@ -97,27 +192,134 @@ int main(void) {
 "#
             .replace("{name}", name),
         ),
+        ("Makefile".into(), makefile_c(name, "", "")),
+    ]
+}
+
+// -- C with Allegro --
+
+fn gen_c_allegro(name: &str) -> Vec<(String, String)> {
+    vec![
         (
-            "Makefile".into(),
-            r#"CC = gcc
-CFLAGS = -Wall -Wextra -O2 -std=c11
-LDFLAGS =
-SRC = src/main.c
-BIN = {name}
+            "src/main.c".into(),
+            r#"#include <allegro5/allegro.h>
 
-all: $(BIN)
+int main(void) {
+    if (!al_init()) {
+        al_uninstall_system();
+        return -1;
+    }
 
-$(BIN): $(SRC)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+    ALLEGRO_DISPLAY *display = al_create_display(800, 600);
+    if (!display) {
+        al_uninstall_system();
+        return -1;
+    }
 
-run: $(BIN)
-	./$(BIN)
+    al_set_window_title(display, "{name}");
+    al_clear_to_color(al_map_rgb(24, 24, 24));
+    al_flip_display();
+    al_rest(3.0);
 
-clean:
-	rm -f $(BIN)
-.PHONY: all run clean
+    al_destroy_display(display);
+    al_uninstall_system();
+    return 0;
+}
 "#
             .replace("{name}", name),
+        ),
+        (
+            "Makefile".into(),
+            makefile_c(
+                name,
+                "$(shell pkg-config --cflags allegro-5)",
+                "$(shell pkg-config --libs allegro-5)",
+            ),
+        ),
+    ]
+}
+
+// -- C with cURL --
+
+fn gen_c_curl(name: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "src/main.c".into(),
+            r#"#include <stdio.h>
+#include <curl/curl.h>
+
+static size_t write_cb(void *data, size_t size, size_t nmemb, void *user) {
+    return fwrite(data, size, nmemb, stdout);
+}
+
+int main(void) {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        fprintf(stderr, "Failed to init curl\n");
+        curl_global_cleanup();
+        return 1;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, "https://httpbin.org/get");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK)
+        fprintf(stderr, "curl failed: %s\n", curl_easy_strerror(res));
+
+    curl_easy_cleanup(curl);
+    curl_global_cleanup();
+    return 0;
+}
+"#
+            .replace("{name}", name),
+        ),
+        (
+            "Makefile".into(),
+            makefile_c(
+                name,
+                "$(shell pkg-config --cflags libcurl)",
+                "$(shell pkg-config --libs libcurl)",
+            ),
+        ),
+    ]
+}
+
+// -- C with GTK3 --
+
+fn gen_c_gtk3(name: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "src/main.c".into(),
+            r#"#include <gtk/gtk.h>
+
+static void on_activate(GtkApplication *app, gpointer data) {
+    GtkWidget *win = gtk_application_window_new(app);
+    gtk_window_set_title(GTK_WINDOW(win), "{name}");
+    gtk_window_set_default_size(GTK_WINDOW(win), 400, 300);
+    gtk_widget_show_all(win);
+}
+
+int main(int argc, char **argv) {
+    GtkApplication *app = gtk_application_new("com.example.{name}",
+                                              G_APPLICATION_DEFAULT_FLAGS);
+    g_signal_connect(app, "activate", G_CALLBACK(on_activate), NULL);
+    int status = g_application_run(G_APPLICATION(app), argc, argv);
+    g_object_unref(app);
+    return status;
+}
+"#
+            .replace("{name}", name),
+        ),
+        (
+            "Makefile".into(),
+            makefile_c(
+                name,
+                "$(shell pkg-config --cflags gtk+-3.0)",
+                "$(shell pkg-config --libs gtk+-3.0)",
+            ),
         ),
     ]
 }
@@ -144,27 +346,58 @@ int main(void) {
 "#
             .replace("{name}", name),
         ),
+        ("Makefile".into(), makefile_c(name, "", "-lncurses")),
+    ]
+}
+
+// -- C with OpenGL (GLFW) --
+
+fn gen_c_opengl(name: &str) -> Vec<(String, String)> {
+    vec![
         (
-            "Makefile".into(),
-            r#"CC = gcc
-CFLAGS = -Wall -Wextra -O2 -std=c11
-LDFLAGS = -lncurses
-SRC = src/main.c
-BIN = {name}
+            "src/main.c".into(),
+            r#"#include <GLFW/glfw3.h>
+#include <GL/gl.h>
 
-all: $(BIN)
+int main(void) {
+    if (!glfwInit())
+        return -1;
 
-$(BIN): $(SRC)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+    GLFWwindow *win = glfwCreateWindow(800, 600, "{name}", NULL, NULL);
+    if (!win) {
+        glfwTerminate();
+        return -1;
+    }
 
-run: $(BIN)
-	./$(BIN)
+    glfwMakeContextCurrent(win);
 
-clean:
-	rm -f $(BIN)
-.PHONY: all run clean
+    while (!glfwWindowShouldClose(win)) {
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glBegin(GL_TRIANGLES);
+        glColor3f(1,0,0); glVertex2f(-0.5f, -0.5f);
+        glColor3f(0,1,0); glVertex2f( 0.5f, -0.5f);
+        glColor3f(0,0,1); glVertex2f( 0.0f,  0.5f);
+        glEnd();
+
+        glfwSwapBuffers(win);
+        glfwPollEvents();
+    }
+
+    glfwDestroyWindow(win);
+    glfwTerminate();
+    return 0;
+}
 "#
             .replace("{name}", name),
+        ),
+        (
+            "Makefile".into(),
+            makefile_c(
+                name,
+                "$(shell pkg-config --cflags glfw3 gl)",
+                "$(shell pkg-config --libs glfw3 gl)",
+            ),
         ),
     ]
 }
@@ -178,10 +411,10 @@ fn gen_c_raylib(name: &str) -> Vec<(String, String)> {
             r#"#include "raylib.h"
 
 int main(void) {
-    const int screenWidth = 800;
-    const int screenHeight = 450;
+    const int w = 800;
+    const int h = 450;
 
-    InitWindow(screenWidth, screenHeight, "{name}");
+    InitWindow(w, h, "{name}");
     SetTargetFPS(60);
 
     while (!WindowShouldClose()) {
@@ -199,91 +432,11 @@ int main(void) {
         ),
         (
             "Makefile".into(),
-            r#"CC = gcc
-CFLAGS = -Wall -Wextra -O2 -std=c11 $(shell pkg-config --cflags raylib)
-LDFLAGS = $(shell pkg-config --libs raylib)
-SRC = src/main.c
-BIN = {name}
-
-all: $(BIN)
-
-$(BIN): $(SRC)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-run: $(BIN)
-	./$(BIN)
-
-clean:
-	rm -f $(BIN)
-.PHONY: all run clean
-"#
-            .replace("{name}", name),
-        ),
-    ]
-}
-
-// -- C with OpenGL (GLFW) --
-
-fn gen_c_opengl(name: &str) -> Vec<(String, String)> {
-    vec![
-        (
-            "src/main.c".into(),
-            r#"#include <GLFW/glfw3.h>
-#include <GL/gl.h>
-
-int main(void) {
-    if (!glfwInit())
-        return -1;
-
-    GLFWwindow* window = glfwCreateWindow(800, 600, "{name}", NULL, NULL);
-    if (!window) {
-        glfwTerminate();
-        return -1;
-    }
-
-    glfwMakeContextCurrent(window);
-
-    while (!glfwWindowShouldClose(window)) {
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        glBegin(GL_TRIANGLES);
-        glColor3f(1.0f, 0.0f, 0.0f); glVertex2f(-0.5f, -0.5f);
-        glColor3f(0.0f, 1.0f, 0.0f); glVertex2f(0.5f, -0.5f);
-        glColor3f(0.0f, 0.0f, 1.0f); glVertex2f(0.0f, 0.5f);
-        glEnd();
-
-        glfwSwapBuffers(window);
-        glfwPollEvents();
-    }
-
-    glfwDestroyWindow(window);
-    glfwTerminate();
-    return 0;
-}
-"#
-            .replace("{name}", name),
-        ),
-        (
-            "Makefile".into(),
-            r#"CC = gcc
-CFLAGS = -Wall -Wextra -O2 -std=c11 $(shell pkg-config --cflags glfw3 gl)
-LDFLAGS = $(shell pkg-config --libs glfw3 gl)
-SRC = src/main.c
-BIN = {name}
-
-all: $(BIN)
-
-$(BIN): $(SRC)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-run: $(BIN)
-	./$(BIN)
-
-clean:
-	rm -f $(BIN)
-.PHONY: all run clean
-"#
-            .replace("{name}", name),
+            makefile_c(
+                name,
+                "$(shell pkg-config --cflags raylib)",
+                "$(shell pkg-config --libs raylib)",
+            ),
         ),
     ]
 }
@@ -299,20 +452,18 @@ fn gen_c_sdl2(name: &str) -> Vec<(String, String)> {
 int main(void) {
     SDL_Init(SDL_INIT_VIDEO);
 
-    SDL_Window* window = SDL_CreateWindow(
-        "{name}",
-        SDL_WINDOWPOS_UNDEFINED,
-        SDL_WINDOWPOS_UNDEFINED,
-        800, 600,
+    SDL_Window *win = SDL_CreateWindow(
+        "{name}", SDL_WINDOWPOS_UNDEFINED,
+        SDL_WINDOWPOS_UNDEFINED, 800, 600,
         SDL_WINDOW_SHOWN
     );
 
-    SDL_Surface* surface = SDL_GetWindowSurface(window);
-    SDL_FillRect(surface, NULL, SDL_MapRGB(surface->format, 0xFF, 0xFF, 0xFF));
-    SDL_UpdateWindowSurface(window);
+    SDL_Surface *surf = SDL_GetWindowSurface(win);
+    SDL_FillRect(surf, NULL, SDL_MapRGB(surf->format, 0xFF, 0xFF, 0xFF));
+    SDL_UpdateWindowSurface(win);
     SDL_Delay(3000);
 
-    SDL_DestroyWindow(window);
+    SDL_DestroyWindow(win);
     SDL_Quit();
     return 0;
 }
@@ -321,27 +472,137 @@ int main(void) {
         ),
         (
             "Makefile".into(),
-            r#"CC = gcc
-CFLAGS = -Wall -Wextra -O2 -std=c11 $(shell pkg-config --cflags sdl2)
-LDFLAGS = $(shell pkg-config --libs sdl2)
-SRC = src/main.c
-BIN = {name}
+            makefile_c(
+                name,
+                "$(shell pkg-config --cflags sdl2)",
+                "$(shell pkg-config --libs sdl2)",
+            ),
+        ),
+    ]
+}
+
+// -- C++ (bare) --
+
+fn gen_cpp(name: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "src/main.cpp".into(),
+            r#"#include <iostream>
+
+int main() {
+    std::cout << "Hello from {name}!" << std::endl;
+    return 0;
+}
+"#
+            .replace("{name}", name),
+        ),
+        ("Makefile".into(), makefile_cpp(name, "", "")),
+    ]
+}
+
+// -- Go --
+
+fn gen_go(name: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "src/main.go".into(),
+            r#"package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello from {name}!")
+}
+"#
+            .replace("{name}", name),
+        ),
+        (
+            "go.mod".into(),
+            r#"module {name}
+
+go 1.22
+"#
+            .replace("{name}", name),
+        ),
+        (
+            "Makefile".into(),
+            r#"BUILD_DIR = build
+BIN = $(BUILD_DIR)/{name}
 
 all: $(BIN)
 
-$(BIN): $(SRC)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+$(BIN): src/main.go go.mod | $(BUILD_DIR)
+	go build -o $@ ./src
+
+$(BUILD_DIR):
+	mkdir -p $@
 
 run: $(BIN)
 	./$(BIN)
 
 clean:
-	rm -f $(BIN)
+	rm -rf $(BUILD_DIR)
 .PHONY: all run clean
 "#
             .replace("{name}", name),
         ),
     ]
+}
+
+// -- Node.js --
+
+fn gen_nodejs(name: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "src/index.js".into(),
+            r#"const http = require('http');
+
+const hostname = '127.0.0.1';
+const port = 3000;
+
+const server = http.createServer((req, res) => {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/plain');
+    res.end('Hello from {name}!\n');
+});
+
+server.listen(port, hostname, () => {
+    console.log(`Server running at http://${hostname}:${port}/`);
+});
+"#
+            .replace("{name}", name),
+        ),
+        (
+            "package.json".into(),
+            r#"{
+  "name": "{name}",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  }
+}
+"#
+            .replace("{name}", name),
+        ),
+    ]
+}
+
+// -- Python --
+
+fn gen_python(name: &str) -> Vec<(String, String)> {
+    vec![(
+        "src/main.py".into(),
+        r#"def main():
+    print("Hello from {name}!")
+
+
+if __name__ == "__main__":
+    main()
+"#
+        .replace("{name}", name),
+    )]
 }
 
 // -- Rust --
@@ -368,20 +629,43 @@ edition = "2021"
     ]
 }
 
-// -- Python --
+// -- Zig --
 
-fn gen_python(name: &str) -> Vec<(String, String)> {
-    vec![(
-        "src/main.py".into(),
-        r#"def main():
-    print("Hello from {name}!")
+fn gen_zig(name: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "src/main.zig".into(),
+            r#"const std = @import("std");
 
-
-if __name__ == "__main__":
-    main()
+pub fn main() void {
+    std.debug.print("Hello from {s}!\n", .{"{name}"});
+}
 "#
-        .replace("{name}", name),
-    )]
+            .replace("{name}", name),
+        ),
+        (
+            "Makefile".into(),
+            r#"BUILD_DIR = build
+BIN = $(BUILD_DIR)/{name}
+
+all: $(BIN)
+
+$(BIN): src/main.zig | $(BUILD_DIR)
+	zig build-exe $< -femit-bin=$@
+
+$(BUILD_DIR):
+	mkdir -p $@
+
+run: $(BIN)
+	./$(BIN)
+
+clean:
+	rm -rf $(BUILD_DIR)
+.PHONY: all run clean
+"#
+            .replace("{name}", name),
+        ),
+    ]
 }
 
 // -- Add packages to existing flake.nix --
@@ -402,7 +686,6 @@ pub fn add_packages(name: &str, packages: &[String]) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Could not find closing ] in buildInputs"))?;
     let close_abs = marker_pos + marker.len() + close_pos;
 
-    // Walk back to the line start before the closing ];
     let insert_pos = content[..close_abs]
         .rfind('\n')
         .map(|p| p + 1)

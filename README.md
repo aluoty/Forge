@@ -1,36 +1,71 @@
 # Forge
 
-A project scaffold generator for Nix. Create language-specific projects with proper `flake.nix` dev shells, ready to use with `direnv` and `nix develop`.
+A project scaffold generator for Nix. Create language-specific projects with
+proper `flake.nix` dev shells, ready to use with `direnv` and `nix develop`.
 
 ## Commands
 
-| Command                          | Description                                        |
-|----------------------------------|----------------------------------------------------|
-| `forge new <name>`               | Create project with interactive template selection |
-| `forge new <name> --lang <id>`   | Create project with a specific template            |
-| `forge list`                     | List available language templates                  |
-| `forge add <name> <pkgs>...`     | Add Nix packages to an existing project's flake.nix|
+| Command                                    | Description                                        |
+|--------------------------------------------|----------------------------------------------------|
+| `forge new <name>`                         | Create project (interactive language selection)    |
+| `forge new <name> --lang <lang>`           | Create project with specific language              |
+| `forge new <name> --lang <lang> --template <t>` | Create project with language template          |
+| `forge list`                               | List available languages and templates             |
+| `forge doctor`                             | Check system setup and list everything             |
+| `forge add <name> <pkgs>...`               | Add Nix packages to an existing flake.nix          |
 
-## Templates
+## Languages (11)
 
-| ID           | Language / Framework        | Nix Packages                                                        |
-|--------------|-----------------------------|---------------------------------------------------------------------|
-| `c`          | C (bare)                    | gcc, gnumake, gdb                                                   |
-| `c-ncurses`  | C with Ncurses              | gcc, gnumake, gdb, ncurses                                          |
-| `c-raylib`   | C with Raylib               | gcc, gnumake, gdb, pkg-config, raylib                               |
-| `c-opengl`   | C with OpenGL / GLFW        | gcc, gnumake, gdb, pkg-config, libGL, glfw, glew                    |
-| `c-sdl2`     | C with SDL2                 | gcc, gnumake, gdb, pkg-config, SDL2, SDL2_image, SDL2_mixer, SDL2_ttf |
-| `rust`       | Rust                        | cargo, rustc                                                        |
-| `python`     | Python                      | python3, pip                                                        |
+| Lang         | Description                            | Nix packages               |
+|--------------|----------------------------------------|----------------------------|
+| `c`          | GCC + Make                             | gcc, gnumake, gdb          |
+| `cpp`        | G++ + Make                             | gcc, gnumake, gdb          |
+| `go`         | Go toolchain                           | go, gopls                  |
+| `haskell`    | GHC                                    | ghc                        |
+| `lua`        | Lua interpreter                        | lua                        |
+| `nodejs`     | Node.js + npm                          | nodejs                     |
+| `ocaml`      | OCaml compiler                         | ocaml                      |
+| `python`     | Python 3 + pip                         | python3, pip               |
+| `rust`       | Cargo + rustc                          | cargo, rustc               |
+| `typescript` | Node.js + TypeScript compiler          | nodejs, typescript         |
+| `zig`        | Zig compiler                           | zig                        |
 
-## Example
+All projects include `git` in their dev shell.
+
+## Templates for C
+
+Use `forge new <name> --lang c --template <name>` to add graphics, GUI, or
+networking libraries to a C project:
+
+| Template   | Library         | Description              |
+|------------|-----------------|--------------------------|
+| `allegro`  | Allegro         | Game development library |
+| `cairo`    | Cairo           | 2D vector graphics       |
+| `curl`     | libcurl         | HTTP requests            |
+| `gtk3`     | GTK3            | Desktop GUI toolkit      |
+| `ncurses`  | Ncurses         | Terminal UIs             |
+| `opengl`   | OpenGL + GLFW   | 3D graphics              |
+| `raylib`   | Raylib          | Simple graphics library  |
+| `sdl2`     | SDL2            | Multimedia library       |
+| `xlib`     | X11 (Xlib)      | X11 window system        |
+
+## Examples
 
 ```bash
 # Interactive mode
 forge new mygame
 
-# Or non-interactive
-forge new mygame --lang c-raylib
+# Bare C project
+forge new mygame --lang c
+
+# C with Raylib
+forge new mygame --lang c --template raylib
+
+# Rust
+forge new mycli --lang rust
+
+# Haskell
+forge new myapp --lang haskell
 
 # Enter the project
 cd mygame
@@ -49,7 +84,15 @@ The `add` command inserts Nix packages into the `buildInputs` of an existing
 project's `flake.nix`:
 
 ```bash
-forge add myproject cmake ninja pkg-config
+forge add myproject cmake ninja
 ```
 
 Packages already present are skipped.
+
+## Doctor
+
+Check what's installed and see everything available:
+
+```bash
+forge doctor
+```

@@ -13,11 +13,14 @@ pub enum Commands {
     New {
         /// Project name
         name: String,
-        /// Language template ID (omit for interactive selection)
+        /// Language (omit for interactive selection)
         #[arg(long, short)]
         lang: Option<String>,
+        /// Language template (e.g. raylib, ncurses, sdl2)
+        #[arg(long, short)]
+        template: Option<String>,
     },
-    /// List available language templates
+    /// List available languages and templates
     List,
     /// Add Nix packages to an existing project's flake.nix
     Add {
@@ -26,4 +29,6 @@ pub enum Commands {
         /// Nix packages to add
         packages: Vec<String>,
     },
+    /// Check system setup and list available languages / templates
+    Doctor,
 }
